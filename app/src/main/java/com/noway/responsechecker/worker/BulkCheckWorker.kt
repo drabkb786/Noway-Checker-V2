@@ -16,21 +16,35 @@ class BulkCheckWorker(appContext: Context, params: WorkerParameters) : Coroutine
         val runId = inputData.getString(KEY_RUN_ID) ?: return@withContext Result.failure()
         val db = HistoryDatabase(applicationContext)
         val leaseOwner = id.toString()
-        if (!db.acquireWorkerLease(runId, leaseOwner)) { db.close(); return@withContext Result.success() }
+        if (!db.acquireWorkerLease(runId, leaseOwner)) {
+            db.close()
+            return@withContext Result.success()
+        }
         try {
             db.resetInProgress(runId)
             while (true) {
-                if (isStopped) { db.resetInProgress(runId); return@withContext Result.retry() }
+                if (isStopped) {
+                    db.resetInProgress(runId)
+                    return@withContext Result.retry()
+                }
                 val run = db.bulkRun(runId) ?: return@withContext Result.failure()
                 when (run.status) {
-                    "PAUSED", "CANCELLED" -> { db.resetInProgress(runId); return@withContext Result.success() }
+                    "PAUSED", "CANCELLED" -> {
+                        db.resetInProgress(runId)
+                        return@withContext Result.success()
+                    }
                 }
                 val batch = db.claimPendingBatch(runId, run.concurrency)
                 if (batch.isEmpty()) break
                 coroutineScope {
                     batch.map { (id, target) ->
                         async(Dispatchers.IO) {
-                            val result = ResponseChecker().check(target, followRedirects = true)
+                            val result = ResponseChecker(applicationContext).check(
+                                rawTarget = target,
+                                followRedirects = true,
+                                captureBody = false,
+                                cdnFinder = true
+                            )
                             db.save(result)
                             db.markTarget(id)
                         }
