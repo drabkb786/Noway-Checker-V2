@@ -77,7 +77,7 @@ class ResponseChecker(private val context: Context? = null) {
                     TlsInfo(
                         protocol = it.tlsVersion.javaName,
                         cipherSuite = it.cipherSuite.javaName,
-                        peerPrincipal = runCatching { it.peerPrincipal.name }.getOrNull(),
+                        peerPrincipal = runCatching { it.peerPrincipal?.name }.getOrNull(),
                         subject = cert?.subjectX500Principal?.name,
                         issuer = cert?.issuerX500Principal?.name,
                         subjectAltNames = certificateSans(cert),
