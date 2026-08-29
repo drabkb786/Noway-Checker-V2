@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -535,9 +536,7 @@ private fun ResultCard(result: CdnResult) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                Box(
-                    Modifier.padding(top = 4.dp).size(9.dp).clip(CircleShape).background(statusColor)
-                )
+                Box(Modifier.padding(top = 4.dp).size(9.dp).clip(CircleShape).background(statusColor))
                 Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
