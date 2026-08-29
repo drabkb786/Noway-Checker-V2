@@ -32,10 +32,11 @@ android {
             versionNameSuffix = "-debug"
         }
         getByName("release") {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Keep release unminified so stack traces remain readable and the APK
+            // retains the complete Compose/OkHttp runtime for the requested full build.
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
