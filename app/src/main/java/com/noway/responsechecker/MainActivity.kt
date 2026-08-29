@@ -3,11 +3,13 @@ package com.noway.responsechecker
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.noway.responsechecker.ui.NowayV2App
+import androidx.activity.enableEdgeToEdge
+import com.noway.responsechecker.ui.CdnFinderApp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { NowayV2App() }
+        enableEdgeToEdge()
+        setContent { CdnFinderApp() }
     }
 }
