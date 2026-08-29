@@ -5,8 +5,9 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_noway"
-        android:label="NOWAY Response Checker"
+        android:icon="@drawable/ic_noway_cdn"
+        android:label="NOWAY CDN Finder R5"
+        android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.NOWAY">
         <activity
