@@ -10,6 +10,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,10 +22,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -147,11 +148,7 @@ fun CdnFinderApp() {
             runCatching {
                 context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
             }.onSuccess { text ->
-                input = text.lines()
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .take(3000)
-                    .joinToString("\n")
+                input = text.lines().map { it.trim() }.filter { it.isNotBlank() }.take(3000).joinToString("\n")
                 scope.launch { snackbar.showSnackbar("TXT imported") }
             }.onFailure {
                 scope.launch { snackbar.showSnackbar("Import failed") }
@@ -203,21 +200,16 @@ fun CdnFinderApp() {
         isScanning = false
     }
 
-    fun buildExport(mode: ExportMode): String {
-        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    fun exportText(mode: ExportMode): String {
         val detected = results.filter { it.detected }
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val body = when (mode) {
             ExportMode.ALL -> results.joinToString("\n") { it.compactLine() }
             ExportMode.DETECTED -> detected.joinToString("\n") { it.compactLine() }
-            ExportMode.HOSTS -> detected.map { it.host }.distinct().joinToString("\n")
-            ExportMode.GROUPED -> detected.groupBy { it.provider }
-                .toSortedMap()
-                .entries.joinToString("\n\n") { (provider, list) ->
-                    buildString {
-                        append("[$provider]\n")
-                        append(list.map { it.host }.distinct().sorted().joinToString("\n"))
-                    }
-                }
+            ExportMode.HOSTS -> detected.map { it.host }.distinct().sorted().joinToString("\n")
+            ExportMode.GROUPED -> detected.groupBy { it.provider }.toSortedMap().entries.joinToString("\n\n") { (provider, list) ->
+                "[$provider]\n" + list.map { it.host }.distinct().sorted().joinToString("\n")
+            }
         }
         return buildString {
             append("NOWAY CDN FINDER R5\n")
@@ -230,7 +222,7 @@ fun CdnFinderApp() {
         }
     }
 
-    val filteredResults = results.filter { result ->
+    val visible = results.filter { result ->
         val filterOk = when (filter) {
             ResultFilter.ALL -> true
             ResultFilter.DETECTED -> result.detected
@@ -241,19 +233,21 @@ fun CdnFinderApp() {
         filterOk && queryOk
     }
 
+    val detectedCount = results.count { it.detected }
+    val unknownCount = results.count { !it.detected && it.error == null }
+    val errorCount = results.count { it.error != null }
+
     NowayTheme {
         Scaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
                 TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg0.copy(alpha = 0.96f)),
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg0.copy(alpha = 0.97f)),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(11.dp))
+                                Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
                                     .background(Brush.linearGradient(listOf(Accent, AccentBlue))),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -262,7 +256,7 @@ fun CdnFinderApp() {
                             Spacer(Modifier.width(11.dp))
                             Column {
                                 Text("NOWAY CDN FINDER", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                                Text("R5 • EDGE INTELLIGENCE", color = Accent, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                Text("R5 • EDGE INTELLIGENCE", color = Accent, fontSize = 10.sp, letterSpacing = 1.1.sp)
                             }
                         }
                     },
@@ -276,15 +270,12 @@ fun CdnFinderApp() {
                             }
                             DropdownMenu(expanded = exportOpen, onDismissRequest = { exportOpen = false }) {
                                 ExportMode.entries.forEach { mode ->
-                                    DropdownMenuItem(
-                                        text = { Text(mode.label) },
-                                        onClick = {
-                                            exportOpen = false
-                                            pendingExport = buildExport(mode)
-                                            val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
-                                            createDocument.launch("noway-cdn-$stamp.txt")
-                                        }
-                                    )
+                                    DropdownMenuItem(text = { Text(mode.label) }, onClick = {
+                                        exportOpen = false
+                                        pendingExport = exportText(mode)
+                                        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+                                        createDocument.launch("noway-cdn-$stamp.txt")
+                                    })
                                 }
                             }
                         }
@@ -293,84 +284,148 @@ fun CdnFinderApp() {
             }
         ) { padding ->
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Bg0, Bg1, Color(0xFF091018))))
-                    .padding(padding)
-                    .imePadding()
+                Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Bg0, Bg1, Color(0xFF091018))))
+                    .padding(padding).imePadding()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Dashboard(results = results, completed = completed, total = total)
-                    Spacer(Modifier.height(10.dp))
-
-                    InputPanel(
-                        input = input,
-                        onInputChange = { input = it },
-                        scanning = isScanning,
-                        concurrency = concurrency,
-                        onConcurrency = { concurrency = it },
-                        onScan = ::startScan,
-                        onStop = ::stopScan,
-                        onPaste = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                            if (text.isNotBlank()) input = text
-                        },
-                        onClear = {
-                            stopScan()
-                            input = ""
-                            results.clear()
-                            completed = 0
-                            total = 0
-                        }
-                    )
-
-                    AnimatedVisibility(visible = isScanning) {
-                        Column(Modifier.padding(top = 10.dp)) {
-                            LinearProgressIndicator(
-                                progress = { if (total == 0) 0f else completed.toFloat() / total.toFloat() },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = Accent,
-                                trackColor = Line
-                            )
-                            Spacer(Modifier.height(5.dp))
-                            Text("Scanning $completed / $total • $concurrency parallel workers", color = Muted, fontSize = 11.sp)
-                        }
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-                    ResultsToolbar(
-                        filter = filter,
-                        onFilter = { filter = it },
-                        query = query,
-                        onQuery = { query = it },
-                        count = filteredResults.size,
-                        onCopy = {
-                            val text = filteredResults.joinToString("\n") { it.compactLine() }
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("NOWAY CDN results", text))
-                            scope.launch { snackbar.showSnackbar("Visible results copied") }
-                        }
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-                    if (results.isEmpty()) {
-                        EmptyState(modifier = Modifier.weight(1f))
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                    item { Spacer(Modifier.height(2.dp)) }
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(filteredResults, key = { "${it.host}-${it.durationMs}-${it.input}" }) { item ->
-                                ResultCard(item)
-                            }
-                            item { Spacer(Modifier.height(10.dp)) }
+                            StatCard("DONE", "$completed/$total", AccentBlue)
+                            StatCard("CDN", detectedCount.toString(), Accent)
+                            StatCard("UNKNOWN", unknownCount.toString(), Warning)
+                            StatCard("ERROR", errorCount.toString(), Danger)
                         }
                     }
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Panel.copy(alpha = 0.97f)),
+                            shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Line)
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Public, null, tint = Accent, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(7.dp))
+                                    Text("TARGETS", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("up to 1,500 unique", color = Muted, fontSize = 10.sp)
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = input,
+                                    onValueChange = { input = it },
+                                    enabled = !isScanning,
+                                    modifier = Modifier.fillMaxWidth().height(118.dp),
+                                    placeholder = { Text("example.com\ncdn.example.org\nhttps://site.tld/path", color = Muted) },
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                    shape = RoundedCornerShape(13.dp)
+                                )
+                                Spacer(Modifier.height(7.dp))
+                                Row(
+                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text("Workers", color = Muted, fontSize = 11.sp)
+                                    listOf(3, 6, 10).forEach { option ->
+                                        FilterChip(
+                                            selected = concurrency == option,
+                                            onClick = { if (!isScanning) concurrency = option },
+                                            enabled = !isScanning,
+                                            label = { Text(option.toString(), fontSize = 10.sp) }
+                                        )
+                                    }
+                                    TextButton(enabled = !isScanning, onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                                        if (text.isNotBlank()) input = text
+                                    }) { Text("Paste", fontSize = 11.sp) }
+                                    TextButton(onClick = {
+                                        stopScan(); input = ""; results.clear(); completed = 0; total = 0
+                                    }) { Text("Clear", color = Danger, fontSize = 11.sp) }
+                                }
+                                Button(
+                                    onClick = if (isScanning) ::stopScan else ::startScan,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isScanning) Danger else Accent,
+                                        contentColor = Bg0
+                                    )
+                                ) {
+                                    Icon(if (isScanning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(if (isScanning) "STOP SCAN" else "SCAN CDN", fontWeight = FontWeight.ExtraBold)
+                                }
+                            }
+                        }
+                    }
+                    if (isScanning) {
+                        item {
+                            Column {
+                                LinearProgressIndicator(
+                                    progress = { if (total == 0) 0f else completed.toFloat() / total.toFloat() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = Accent,
+                                    trackColor = Line
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("Scanning $completed / $total • $concurrency parallel workers", color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("RESULTS", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, letterSpacing = 1.sp)
+                            Spacer(Modifier.width(7.dp))
+                            Text(visible.size.toString(), color = Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Spacer(Modifier.width(12.dp))
+                            IconButton(enabled = visible.isNotEmpty(), onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("NOWAY CDN results", visible.joinToString("\n") { it.compactLine() }))
+                                scope.launch { snackbar.showSnackbar("Visible results copied") }
+                            }, modifier = Modifier.size(34.dp)) {
+                                Icon(Icons.Rounded.ContentCopy, "Copy", tint = if (visible.isNotEmpty()) AccentBlue else Muted, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            ResultFilter.entries.forEach { item ->
+                                FilterChip(selected = filter == item, onClick = { filter = item }, label = { Text(item.label, fontSize = 10.sp) })
+                            }
+                        }
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Filter by domain or CDN provider", color = Muted, fontSize = 11.sp) },
+                            shape = RoundedCornerShape(12.dp),
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+                        )
+                    }
+                    if (results.isEmpty()) {
+                        item { EmptyState() }
+                    } else if (visible.isEmpty()) {
+                        item {
+                            Text("No results match this filter.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 24.dp))
+                        }
+                    } else {
+                        items(visible, key = { "${it.host}-${it.durationMs}-${it.input}" }) { item -> ResultCard(item) }
+                    }
+                    item { Spacer(Modifier.height(18.dp)) }
                 }
             }
         }
@@ -378,144 +433,12 @@ fun CdnFinderApp() {
 }
 
 @Composable
-private fun Dashboard(results: List<CdnResult>, completed: Int, total: Int) {
-    val detected = results.count { it.detected }
-    val unknown = results.count { !it.detected && it.error == null }
-    val errors = results.count { it.error != null }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        StatCard("DONE", "$completed/$total", AccentBlue, Modifier.weight(1f))
-        StatCard("CDN", detected.toString(), Accent, Modifier.weight(1f))
-        StatCard("UNKNOWN", unknown.toString(), Warning, Modifier.weight(1f))
-        StatCard("ERROR", errors.toString(), Danger, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, shape = RoundedCornerShape(14.dp), color = Panel, tonalElevation = 0.dp) {
+private fun StatCard(label: String, value: String, color: Color) {
+    Surface(modifier = Modifier.width(112.dp), shape = RoundedCornerShape(14.dp), color = Panel) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
             Text(value, color = color, fontWeight = FontWeight.Black, fontSize = 16.sp)
             Text(label, color = Muted, fontSize = 9.sp, letterSpacing = 0.7.sp)
         }
-    }
-}
-
-@Composable
-private fun InputPanel(
-    input: String,
-    onInputChange: (String) -> Unit,
-    scanning: Boolean,
-    concurrency: Int,
-    onConcurrency: (Int) -> Unit,
-    onScan: () -> Unit,
-    onStop: () -> Unit,
-    onPaste: () -> Unit,
-    onClear: () -> Unit
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Panel.copy(alpha = 0.96f)),
-        shape = RoundedCornerShape(18.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Line)
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Public, null, tint = Accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(7.dp))
-                Text("TARGETS", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp)
-                Spacer(Modifier.weight(1f))
-                Text("up to 1,500", color = Muted, fontSize = 10.sp)
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
-                enabled = !scanning,
-                modifier = Modifier.fillMaxWidth().height(118.dp),
-                placeholder = { Text("example.com\ncdn.example.org\nhttps://site.tld/path", color = Muted) },
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                shape = RoundedCornerShape(13.dp)
-            )
-            Spacer(Modifier.height(9.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Workers", color = Muted, fontSize = 11.sp)
-                Spacer(Modifier.width(8.dp))
-                listOf(3, 6, 10).forEach { option ->
-                    FilterChip(
-                        selected = concurrency == option,
-                        onClick = { if (!scanning) onConcurrency(option) },
-                        enabled = !scanning,
-                        label = { Text(option.toString(), fontSize = 10.sp) },
-                        modifier = Modifier.padding(end = 5.dp)
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onPaste, enabled = !scanning) { Text("Paste", fontSize = 11.sp) }
-                TextButton(onClick = onClear) { Text("Clear", color = Danger, fontSize = 11.sp) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                if (!scanning) {
-                    Button(
-                        onClick = onScan,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Bg0)
-                    ) {
-                        Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("SCAN CDN", fontWeight = FontWeight.ExtraBold)
-                    }
-                } else {
-                    Button(
-                        onClick = onStop,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Danger, contentColor = Bg0)
-                    ) {
-                        Icon(Icons.Rounded.Stop, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("STOP", fontWeight = FontWeight.ExtraBold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ResultsToolbar(
-    filter: ResultFilter,
-    onFilter: (ResultFilter) -> Unit,
-    query: String,
-    onQuery: (String) -> Unit,
-    count: Int,
-    onCopy: () -> Unit
-) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("RESULTS", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, letterSpacing = 1.sp)
-            Spacer(Modifier.width(7.dp))
-            Text("$count", color = Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onCopy, enabled = count > 0, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Rounded.ContentCopy, "Copy", tint = if (count > 0) AccentBlue else Muted, modifier = Modifier.size(18.dp))
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            ResultFilter.entries.forEach { item ->
-                FilterChip(
-                    selected = filter == item,
-                    onClick = { onFilter(item) },
-                    label = { Text(item.label, fontSize = 10.sp) }
-                )
-            }
-        }
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Filter by domain or CDN provider", color = Muted, fontSize = 11.sp) },
-            shape = RoundedCornerShape(12.dp),
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-        )
     }
 }
 
@@ -527,7 +450,6 @@ private fun ResultCard(result: CdnResult) {
         result.detected -> Accent
         else -> Warning
     }
-
     Card(
         modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
         colors = CardDefaults.cardColors(containerColor = Panel2),
@@ -538,14 +460,8 @@ private fun ResultCard(result: CdnResult) {
             Row(verticalAlignment = Alignment.Top) {
                 Box(Modifier.padding(top = 4.dp).size(9.dp).clip(CircleShape).background(statusColor))
                 Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        result.host,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Column(Modifier.width(230.dp)) {
+                    Text(result.host, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(2.dp))
                     Text(
                         if (result.error != null) result.error else result.provider,
@@ -556,6 +472,7 @@ private fun ResultCard(result: CdnResult) {
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(Modifier.width(8.dp))
                 if (result.detected) {
                     Surface(shape = RoundedCornerShape(9.dp), color = Accent.copy(alpha = 0.13f)) {
                         Text("${result.confidence}%", color = Accent, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
@@ -563,7 +480,7 @@ private fun ResultCard(result: CdnResult) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 MiniTag("HTTP", result.httpCode?.toString() ?: "—")
                 MiniTag("DNS", if (result.ips.isNotEmpty()) "OK" else "—")
                 MiniTag("TIME", "${result.durationMs}ms")
@@ -592,27 +509,29 @@ private fun MiniTag(label: String, value: String) {
 
 @Composable
 private fun DetailLine(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
-        Text(label, color = Muted, fontSize = 10.sp, modifier = Modifier.width(68.dp))
-        Text(value, color = Color.White.copy(alpha = 0.86f), fontSize = 10.sp, modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = Color.White.copy(alpha = 0.86f), fontSize = 10.sp)
     }
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier.size(72.dp).clip(CircleShape).background(Accent.copy(alpha = 0.08f)).border(1.dp, Accent.copy(alpha = 0.22f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.Shield, null, tint = Accent, modifier = Modifier.size(34.dp))
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("READY TO IDENTIFY EDGE NETWORKS", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Spacer(Modifier.height(5.dp))
-            Text("Paste domains, scan, inspect evidence, then export to TXT.", color = Muted, fontSize = 11.sp)
+private fun EmptyState() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 34.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            Modifier.size(72.dp).clip(CircleShape).background(Accent.copy(alpha = 0.08f))
+                .border(1.dp, Accent.copy(alpha = 0.22f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Shield, null, tint = Accent, modifier = Modifier.size(34.dp))
         }
+        Spacer(Modifier.height(12.dp))
+        Text("READY TO IDENTIFY EDGE NETWORKS", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Spacer(Modifier.height(5.dp))
+        Text("Paste domains, scan, inspect evidence, then export to TXT.", color = Muted, fontSize = 11.sp)
     }
 }
 
