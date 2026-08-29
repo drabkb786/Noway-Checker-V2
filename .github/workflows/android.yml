@@ -1,10 +1,11 @@
-name: Android CI
+name: NOWAY CDN Finder R5 Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, cdn-finder-r5 ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,11 +38,15 @@ jobs:
       - name: Unit tests
         run: gradle --no-daemon testDebugUnitTest
 
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build installable release APK
+        run: gradle --no-daemon assembleRelease
+
+      - name: Show APK size
+        run: ls -lh app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NOWAY-Response-Checker-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: NOWAY-CDN-Finder-R5
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
